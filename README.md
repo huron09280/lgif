@@ -2,6 +2,8 @@
 
 这是一个基于 **Electron + React + TypeScript** 构建的桌面端 GIF 智能压缩工具。它支持在本地通过多线程并发运行 `gifsicle` 进行极速压缩，并提供丰富的控制参数（跳帧、色彩数、损耗率、抖动算法等）。
 
+![软件截图](src/assets/screenshot.png)
+
 为了让普通用户能够像使用普通软件一样直接双击运行，而无需通过终端命令行，我们需要将项目**打包编译（Build & Package）**为 macOS 的 `.dmg` 或 Windows 的 `.exe` 安装包。
 
 ---
