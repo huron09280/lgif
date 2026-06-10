@@ -742,8 +742,7 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       await execPromise(cmd);
       const size = fs.statSync(outputPath).size;
       
-      const data = fs.readFileSync(outputPath);
-      const base64 = `data:image/gif;base64,${data.toString('base64')}`;
+      const base64 = `media://${outputPath}`;
       
       const finalFrameCount = await getFrameCount(outputPath);
       
@@ -809,8 +808,7 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       }
       
       const size = fs.statSync(outputPath).size;
-      const data = fs.readFileSync(outputPath);
-      const base64 = `data:image/webp;base64,${data.toString('base64')}`;
+      const base64 = `media://${outputPath}`;
       
       const finalFrameCount = await getFrameCount(outputPath);
       
@@ -851,8 +849,7 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       await execPromise(cmd);
       const size = fs.statSync(outputPath).size;
       
-      const data = fs.readFileSync(outputPath);
-      const base64 = `data:image/png;base64,${data.toString('base64')}`;
+      const base64 = `media://${outputPath}`;
       
       const finalFrameCount = await getFrameCount(outputPath);
       
@@ -902,8 +899,7 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       const imgSize = fs.statSync(outImgPath).size;
       const vidSize = fs.statSync(outVidPath).size;
       
-      const imgData = fs.readFileSync(outImgPath);
-      const base64 = `data:image/jpeg;base64,${imgData.toString('base64')}`;
+      const base64 = `media://${outImgPath}`;
       
       const imgStreamCmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${outImgPath}"`;
       const { stdout: imgStreamOut } = await execPromise(imgStreamCmd);

@@ -58,11 +58,12 @@ interface ConvertedVideoState {
   isLivePhoto?: boolean;
 }
 
-const getImageDimensions = (base64: string): Promise<{ width: number, height: number }> => {
+const getImageDimensions = (url: string): Promise<{ width: number, height: number }> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve({ width: img.width, height: img.height });
-    img.src = base64;
+    img.onerror = () => resolve({ width: 0, height: 0 });
+    img.src = url;
   });
 };
 
@@ -222,7 +223,7 @@ export default function App() {
       if (filePaths.length === 1 && batchFiles.length === 0) {
         const filePath = filePaths[0];
         const size = await window.electronAPI.getFileStats(filePath);
-        const base64 = await window.electronAPI.readGifBase64(filePath);
+        const base64 = `media://${filePath}`;
         const frameCount = await window.electronAPI.getFrameCount(filePath);
         let width = 0, height = 0;
         if (base64) {
@@ -286,7 +287,7 @@ export default function App() {
       for (const newFile of newBatchFiles) {
         (async () => {
           try {
-            const base64 = await window.electronAPI.readGifBase64(newFile.path);
+            const base64 = `media://${newFile.path}`;
             const frameCount = await window.electronAPI.getFrameCount(newFile.path);
             let width = 0, height = 0;
             if (base64) {
@@ -388,7 +389,7 @@ export default function App() {
 
         const size = res.size;
         const ratio = (1 - size / file.originalSize) * 100;
-        const compressedBase64 = await window.electronAPI.readGifBase64(res.outputPath);
+        const compressedBase64 = `media://${res.outputPath}`;
 
         setBatchFiles(prev => prev.map(f => f.id === file.id ? {
           ...f,
@@ -436,7 +437,7 @@ export default function App() {
         frameRateDivisor,
         speedMultiplier
       });
-      const base64 = await window.electronAPI.readGifBase64(res.outputPath);
+      const base64 = `media://${res.outputPath}`;
       const frameCount = await window.electronAPI.getFrameCount(res.outputPath);
       let width = 0, height = 0;
       if (base64) {
@@ -460,7 +461,7 @@ export default function App() {
         inputPath: originalFile.path,
         targetSizeMB: targetMB,
       });
-      const base64 = await window.electronAPI.readGifBase64(res.outputPath);
+      const base64 = `media://${res.outputPath}`;
       const frameCount = await window.electronAPI.getFrameCount(res.outputPath);
       let width = 0, height = 0;
       if (base64) {
@@ -778,7 +779,7 @@ export default function App() {
                               height: 48, 
                               borderRadius: 1.5, 
                               bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0a0a0c' : '#F3F4F6', 
-                              backgroundImage: file.base64 ? `url(${file.base64})` : 'none', 
+                              backgroundImage: file.base64 ? `url("${encodeURI(file.base64)}")` : 'none', 
                               backgroundSize: 'contain', 
                               backgroundPosition: 'center', 
                               backgroundRepeat: 'no-repeat', 
