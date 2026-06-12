@@ -1,10 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Button, Paper, CircularProgress, Chip, IconButton, alpha } from '@mui/material';
-import { CloudUpload, SaveAlt, DeleteOutlined, CropOriginal, CheckCircleOutlined, Menu, FolderOpen, Close, ClearAll } from '@mui/icons-material';
+import { Box, Typography, Button, Paper, CircularProgress, Chip, IconButton, alpha, SvgIcon } from '@mui/material';
+import { CloudUpload, SaveAlt, DeleteOutlined, CheckCircleOutlined, FolderOpen, Close, ClearAll } from '@mui/icons-material';
 import Sidebar from './components/Sidebar';
+import logoImg from './assets/logo.png';
 import RightPanel from './components/RightPanel';
 import VideoRightPanel from './components/VideoRightPanel';
 import ImageSlider from './components/ImageSlider';
+
+// Custom Menu Icon with shorter horizontal lines
+const CustomMenuIcon = (props: any) => (
+  <SvgIcon {...props}>
+    <path d="M6 6h12v2H6V6zm0 5h12v2H6v-2zm0 5h12v2H6v-2z" />
+  </SvgIcon>
+);
 
 // FileState interface for GIF Compression
 interface FileState {
@@ -44,6 +52,7 @@ interface VideoFileState {
   height: number;
   fps: number;
   previewBase64: string;
+  previewVideoPath?: string;
 }
 
 // ConvertedVideoState interface
@@ -120,6 +129,10 @@ export default function App() {
     const saved = localStorage.getItem('gif_speedMultiplier');
     return saved !== null ? parseFloat(saved) : 1.0;
   });
+  const [gifPlayMode, setGifPlayMode] = useState<'normal' | 'alternate'>(() => {
+    const saved = localStorage.getItem('gif_playMode');
+    return saved !== null && (saved === 'normal' || saved === 'alternate') ? (saved as 'normal' | 'alternate') : 'normal';
+  });
 
   // ==========================================
   // Tab 2: Video & Live Photo States (Required for settings sync context)
@@ -128,6 +141,10 @@ export default function App() {
   const [fps, setFps] = useState<number>(15);
   const [videoDither, setVideoDither] = useState<'bayer' | 'floyd_steinberg' | 'none'>('floyd_steinberg');
   const [speed, setSpeed] = useState<number>(1.0);
+  const [videoPlayMode, setVideoPlayMode] = useState<'normal' | 'alternate'>(() => {
+    const saved = localStorage.getItem('video_playMode');
+    return saved !== null && (saved === 'normal' || saved === 'alternate') ? (saved as 'normal' | 'alternate') : 'normal';
+  });
 
   // Load settings on mount from backend configuration file
   useEffect(() => {
@@ -144,11 +161,13 @@ export default function App() {
           if (saved.cropTransparency !== undefined) setCropTransparency(saved.cropTransparency);
           if (saved.frameRateDivisor !== undefined) setFrameRateDivisor(saved.frameRateDivisor);
           if (saved.speedMultiplier !== undefined) setSpeedMultiplier(saved.speedMultiplier);
+          if (saved.gifPlayMode !== undefined) setGifPlayMode(saved.gifPlayMode);
           
           if (saved.exportFormat !== undefined) setExportFormat(saved.exportFormat);
           if (saved.fps !== undefined) setFps(saved.fps);
           if (saved.videoDither !== undefined) setVideoDither(saved.videoDither);
           if (saved.speed !== undefined) setSpeed(saved.speed);
+          if (saved.videoPlayMode !== undefined) setVideoPlayMode(saved.videoPlayMode);
           if (saved.gifExportFormat !== undefined) setGifExportFormat(saved.gifExportFormat);
         }
       } catch (err) {
@@ -173,10 +192,12 @@ export default function App() {
       cropTransparency,
       frameRateDivisor,
       speedMultiplier,
+      gifPlayMode,
       exportFormat,
       fps,
       videoDither,
       speed,
+      videoPlayMode,
       gifExportFormat
     };
     
@@ -190,6 +211,8 @@ export default function App() {
     localStorage.setItem('gif_cropTransparency', String(cropTransparency));
     localStorage.setItem('gif_frameRateDivisor', String(frameRateDivisor));
     localStorage.setItem('gif_speedMultiplier', String(speedMultiplier));
+    localStorage.setItem('gif_playMode', gifPlayMode);
+    localStorage.setItem('video_playMode', videoPlayMode);
 
     window.electronAPI.saveSettings(settings).catch((err) => {
       console.error('Failed to save settings:', err);
@@ -205,10 +228,12 @@ export default function App() {
     cropTransparency,
     frameRateDivisor,
     speedMultiplier,
+    gifPlayMode,
     exportFormat,
     fps,
     videoDither,
     speed,
+    videoPlayMode,
     gifExportFormat
   ]);
 
@@ -306,7 +331,8 @@ export default function App() {
           }
         })();
       }
-
+      
+      setIsSidebarOpen(false);
     } catch (err) {
       console.error(err);
     } finally {
@@ -365,7 +391,8 @@ export default function App() {
         if (mode === 'smart') {
           res = await window.electronAPI.compressGifSmart({
             inputPath: file.path,
-            targetSizeMB: targetMB
+            targetSizeMB: targetMB,
+            playMode: gifPlayMode
           });
         } else {
           // Cap scaleWidth to avoid upscaling
@@ -383,13 +410,14 @@ export default function App() {
             dither,
             cropTransparency,
             frameRateDivisor,
-            speedMultiplier
+            speedMultiplier,
+            playMode: gifPlayMode
           });
         }
 
         const size = res.size;
         const ratio = (1 - size / file.originalSize) * 100;
-        const compressedBase64 = `media://${res.outputPath}`;
+        const compressedBase64 = `media://${res.outputPath}?t=${Date.now()}`;
 
         setBatchFiles(prev => prev.map(f => f.id === file.id ? {
           ...f,
@@ -435,9 +463,10 @@ export default function App() {
         dither,
         cropTransparency,
         frameRateDivisor,
-        speedMultiplier
+        speedMultiplier,
+        playMode: gifPlayMode
       });
-      const base64 = `media://${res.outputPath}`;
+      const base64 = `media://${res.outputPath}?t=${Date.now()}`;
       const frameCount = await window.electronAPI.getFrameCount(res.outputPath);
       let width = 0, height = 0;
       if (base64) {
@@ -460,8 +489,9 @@ export default function App() {
       const res = await window.electronAPI.compressGifSmart({
         inputPath: originalFile.path,
         targetSizeMB: targetMB,
+        playMode: gifPlayMode
       });
-      const base64 = `media://${res.outputPath}`;
+      const base64 = `media://${res.outputPath}?t=${Date.now()}`;
       const frameCount = await window.electronAPI.getFrameCount(res.outputPath);
       let width = 0, height = 0;
       if (base64) {
@@ -495,6 +525,7 @@ export default function App() {
         setTimeRange([0, Math.min(res.duration, 5)]);
         setScaleWidth(res.width);
         setVideoConvertedFile(null);
+        setIsSidebarOpen(false);
       }
     } catch (err: any) {
       console.error(err);
@@ -521,7 +552,8 @@ export default function App() {
         scaleWidth: ['gif', 'webp', 'apng'].includes(exportFormat) ? scaleWidth : -1,
         fps,
         dither: videoDither,
-        speed
+        speed,
+        playMode: videoPlayMode
       });
       setVideoConvertedFile(res);
     } catch (err: any) {
@@ -594,6 +626,7 @@ export default function App() {
             setTimeRange([0, Math.min(res.duration, 5)]);
             setScaleWidth(res.width);
             setVideoConvertedFile(null);
+            setIsSidebarOpen(false);
           }
         } catch (err: any) {
           console.error(err);
@@ -679,18 +712,30 @@ export default function App() {
           // ==========================================
           // Tab 1: GIF Compression View
           // ==========================================
-          <Box sx={{ flex: 1, px: 4, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
+          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
             {/* Header */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <IconButton 
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                   size="small"
-                  sx={{ mr: 0.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', color: 'text.secondary' }}
+                  style={{ WebkitAppRegion: 'no-drag' } as any}
+                  sx={{ mr: 0.5, color: 'text.secondary' }}
                 >
-                  <Menu fontSize="small" />
+                  <CustomMenuIcon fontSize="small" />
                 </IconButton>
-                <CropOriginal sx={{ color: 'text.secondary' }} />
+                <Box 
+                  component="img"
+                  src={logoImg} 
+                  alt="Logo" 
+                  sx={{ 
+                    width: 22, 
+                    height: 22, 
+                    borderRadius: 0.5, 
+                    objectFit: 'cover',
+                    filter: (theme) => theme.palette.mode === 'dark' ? 'invert(0.9) brightness(1.5)' : 'none'
+                  }} 
+                />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                   {batchFiles.length > 0 ? '批量优化查看器' : '对比查看器'}
                 </Typography>
@@ -1019,18 +1064,30 @@ export default function App() {
           // ==========================================
           // Tab 2: Video & Live Photo View
           // ==========================================
-          <Box sx={{ flex: 1, px: 4, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
+          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
             {/* Header */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <IconButton 
                   onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                   size="small"
-                  sx={{ mr: 0.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', color: 'text.secondary' }}
+                  style={{ WebkitAppRegion: 'no-drag' } as any}
+                  sx={{ mr: 0.5, color: 'text.secondary' }}
                 >
-                  <Menu fontSize="small" />
+                  <CustomMenuIcon fontSize="small" />
                 </IconButton>
-                <CropOriginal sx={{ color: 'text.secondary' }} />
+                <Box 
+                  component="img"
+                  src={logoImg} 
+                  alt="Logo" 
+                  sx={{ 
+                    width: 22, 
+                    height: 22, 
+                    borderRadius: 0.5, 
+                    objectFit: 'cover',
+                    filter: (theme) => theme.palette.mode === 'dark' ? 'invert(0.9) brightness(1.5)' : 'none'
+                  }} 
+                />
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>视频转换器</Typography>
               </Box>
               {videoOriginalFile && (
@@ -1084,8 +1141,11 @@ export default function App() {
                   <Box sx={{ flex: 1 }}>
                     {!videoConvertedFile ? (
                       <video 
-                        src={`media://${videoOriginalFile.videoPath}`}
+                        src={`media://${videoOriginalFile.previewVideoPath || videoOriginalFile.videoPath}`}
                         controls
+                        autoPlay
+                        muted
+                        loop
                         poster={videoOriginalFile.previewBase64}
                         style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 8, backgroundColor: '#000' }}
                       />
@@ -1206,6 +1266,7 @@ export default function App() {
           cropTransparency={cropTransparency} setCropTransparency={setCropTransparency}
           frameRateDivisor={frameRateDivisor} setFrameRateDivisor={setFrameRateDivisor}
           speedMultiplier={speedMultiplier} setSpeedMultiplier={setSpeedMultiplier}
+          playMode={gifPlayMode} setPlayMode={setGifPlayMode}
           onSmartCompress={batchFiles.length > 0 ? () => handleBatchCompress('smart') : handleSmartCompress}
           onManualCompress={batchFiles.length > 0 ? () => handleBatchCompress('manual') : handleManualCompress}
           loading={loading || isBatchCompressing}
@@ -1227,6 +1288,8 @@ export default function App() {
           setDither={setVideoDither}
           speed={speed}
           setSpeed={setSpeed}
+          playMode={videoPlayMode}
+          setPlayMode={setVideoPlayMode}
           onConvert={handleVideoConvert}
           loading={loading}
           disabled={!videoOriginalFile}

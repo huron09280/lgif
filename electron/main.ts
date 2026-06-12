@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, nativeImage } from 'electron';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { execFile, exec, execSync } from 'child_process';
 import fs from 'fs';
 import util from 'util';
@@ -166,10 +167,20 @@ app.whenReady().then(() => {
   // Register local media server handler
   protocol.handle('media', (request) => {
     let filePath = decodeURIComponent(request.url.replace('media://', ''));
+    // Strip query parameters
+    const qIndex = filePath.indexOf('?');
+    if (qIndex !== -1) {
+      filePath = filePath.substring(0, qIndex);
+    }
     if (!filePath.startsWith('/')) {
       filePath = '/' + filePath;
     }
-    return net.fetch(`file://${filePath}`);
+    try {
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch (err) {
+      console.error('Failed to fetch media file:', filePath, err);
+      return new Response('File not found', { status: 404 });
+    }
   });
 
   setTimeout(() => {
@@ -255,16 +266,17 @@ const getFrameDelays = async (inputPath: string, frameCount: number): Promise<nu
 };
 
 const executeGifsicle = async (inputPath: string, outputPath: string, params: any) => {
-  const { lossy, colors, scale, scaleWidth, optimizeLevel, dither, cropTransparency, frameRateDivisor, speedMultiplier, frameCount } = params;
+  const { lossy, colors, scale, scaleWidth, optimizeLevel, dither, cropTransparency, frameRateDivisor, speedMultiplier, frameCount, playMode } = params;
   
   let currentInput = inputPath;
   let tempFile = '';
 
   const divisor = frameRateDivisor || 1;
   const speed = speedMultiplier || 1.0;
+  console.log('executeGifsicle params:', { divisor, speed, playMode, frameCount });
 
-  // 如果需要降低帧率或改变播放速度
-  if ((divisor > 1 || speed !== 1.0) && frameCount > 0) {
+  // 如果需要降低帧率、改变播放速度，或者设置为来回播放
+  if ((divisor > 1 || speed !== 1.0 || playMode === 'alternate') && frameCount > 0) {
     tempFile = `${outputPath}.tmp.gif`;
     
     // 获取每一帧的原始延迟
@@ -291,11 +303,35 @@ const executeGifsicle = async (inputPath: string, outputPath: string, params: an
       newDelays.push(adjustedDelay);
     }
 
-    // 拼装 gifsicle 抽帧与重设延迟参数
-    const dropArgs = ['-U', currentInput];
+    // 构建最终的帧索引和延迟列表
+    const finalIndices: number[] = [];
+    const finalDelays: number[] = [];
+
+    // 顺序部分 (前向播放)
     for (let idx = 0; idx < keptFrameIndices.length; idx++) {
-      const origIndex = keptFrameIndices[idx];
-      const newDelay = newDelays[idx];
+      finalIndices.push(keptFrameIndices[idx]);
+      finalDelays.push(newDelays[idx]);
+    }
+
+    // 来回播放时的反向部分 (后向播放)
+    // 比如 0, 1, 2, 3 -> 来回播放变成 0, 1, 2, 3, 2, 1
+    // 如果只有 1 或 2 帧，来回播放没有意义/不需要反向部分
+    if (playMode === 'alternate' && keptFrameIndices.length > 2) {
+      for (let idx = keptFrameIndices.length - 2; idx > 0; idx--) {
+        finalIndices.push(keptFrameIndices[idx]);
+        finalDelays.push(newDelays[idx]);
+      }
+    }
+
+    // 拼装 gifsicle 抽帧与重设延迟参数
+    const dropArgs = ['-U'];
+    if (playMode === 'alternate') {
+      dropArgs.push('--disposal=asis');
+    }
+    dropArgs.push(currentInput);
+    for (let idx = 0; idx < finalIndices.length; idx++) {
+      const origIndex = finalIndices[idx];
+      const newDelay = finalDelays[idx];
       dropArgs.push('-d', String(newDelay), `#${origIndex}`);
     }
     dropArgs.push('-o', tempFile);
@@ -333,7 +369,7 @@ const executeGifsicle = async (inputPath: string, outputPath: string, params: an
 
 // IPC handler for manual compression
 ipcMain.handle('compress-gif-manual', async (event, args) => {
-  const { inputPath, exportFormat, scaleWidth, frameRateDivisor, speedMultiplier } = args;
+  const { inputPath, exportFormat, scaleWidth, frameRateDivisor, speedMultiplier, playMode } = args;
   const ext = path.extname(inputPath);
   const basePath = inputPath.substring(0, inputPath.length - ext.length);
 
@@ -381,13 +417,24 @@ ipcMain.handle('compress-gif-manual', async (event, args) => {
         if (hasLibwebp) {
           filters.push('format=yuv420p');
           const filterString = filters.join(',');
-          const cmd = `ffmpeg -i "${inputPath}" -vf "${filterString}" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+          let cmd = '';
+          if (playMode === 'alternate') {
+            cmd = `ffmpeg -i "${inputPath}" -filter_complex "[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[out]" -map "[out]" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+          } else {
+            cmd = `ffmpeg -i "${inputPath}" -vf "${filterString}" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+          }
           await execPromise(cmd);
         } else {
           const tempGifPath = `${outputPath}.tmp.gif`;
           filters.push('format=yuv420p');
           const filterString = filters.join(',');
-          const gifCmd = `ffmpeg -i "${inputPath}" -filter_complex "[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=floyd_steinberg" -y "${tempGifPath}"`;
+          let gifFilterComplex = '';
+          if (playMode === 'alternate') {
+            gifFilterComplex = `[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[bounced];[bounced]split[pa][pb];[pa]palettegen[p];[pb][p]paletteuse=dither=floyd_steinberg`;
+          } else {
+            gifFilterComplex = `[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=floyd_steinberg`;
+          }
+          const gifCmd = `ffmpeg -i "${inputPath}" -filter_complex "${gifFilterComplex}" -y "${tempGifPath}"`;
           await execPromise(gifCmd);
 
           const webpCmd = `gif2webp "${tempGifPath}" -o "${outputPath}"`;
@@ -402,7 +449,12 @@ ipcMain.handle('compress-gif-manual', async (event, args) => {
       // APNG
       filters.push('format=gbrp');
       const filterString = filters.join(',');
-      const cmd = `ffmpeg -i "${inputPath}" -vf "${filterString}" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+      let cmd = '';
+      if (playMode === 'alternate') {
+        cmd = `ffmpeg -i "${inputPath}" -filter_complex "[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[out]" -map "[out]" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+      } else {
+        cmd = `ffmpeg -i "${inputPath}" -vf "${filterString}" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+      }
       try {
         await execPromise(cmd);
       } catch (err: any) {
@@ -429,7 +481,7 @@ ipcMain.handle('compress-gif-manual', async (event, args) => {
 
 // IPC handler for smart compression (target MB) with parallel execution
 ipcMain.handle('compress-gif-smart', async (event, args) => {
-  const { inputPath, targetSizeMB } = args;
+  const { inputPath, targetSizeMB, playMode } = args;
   const targetSizeBytes = targetSizeMB * 1024 * 1024;
   
   const ext = path.extname(inputPath);
@@ -438,7 +490,7 @@ ipcMain.handle('compress-gif-smart', async (event, args) => {
 
   // Initial stats
   const initialStats = fs.statSync(inputPath);
-  if (initialStats.size <= targetSizeBytes) {
+  if (initialStats.size <= targetSizeBytes && playMode !== 'alternate') {
     fs.copyFileSync(inputPath, finalOutputPath);
     return { outputPath: finalOutputPath, size: initialStats.size };
   }
@@ -457,7 +509,7 @@ ipcMain.handle('compress-gif-smart', async (event, args) => {
   const promises = strategies.map(async (strategy) => {
     const outputPath = `${basePath}_smart_temp_${strategy.name}${ext}`;
     try {
-      const size = await executeGifsicle(inputPath, outputPath, { ...strategy, frameCount });
+      const size = await executeGifsicle(inputPath, outputPath, { ...strategy, playMode, frameCount });
       return { strategy: strategy.name, outputPath, size };
     } catch (error) {
       throw error;
@@ -654,6 +706,20 @@ async function parseVideoOrLivePhotoFile(selectedPath: string) {
     try { fs.unlinkSync(tempPreviewPath); } catch (e) {}
   }
 
+  // Transcode to a lightweight H.264 MP4 for smooth Chromium preview
+  const tempPreviewVideoPath = path.join(app.getPath('temp'), `preview_vid_${Date.now()}_v.mp4`);
+  const transcodeCmd = `ffmpeg -i "${videoPath}" -t 60 -vcodec libx264 -pix_fmt yuv420p -preset ultrafast -crf 28 -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -an -y "${tempPreviewVideoPath}"`;
+  
+  let previewVideoPath = '';
+  try {
+    await execPromise(transcodeCmd);
+    if (fs.existsSync(tempPreviewVideoPath)) {
+      previewVideoPath = tempPreviewVideoPath;
+    }
+  } catch (err) {
+    console.error('Failed to generate preview H.264 video:', err);
+  }
+
   const stats = fs.statSync(selectedPath);
 
   return {
@@ -665,7 +731,8 @@ async function parseVideoOrLivePhotoFile(selectedPath: string) {
     width,
     height,
     fps,
-    previewBase64
+    previewBase64,
+    previewVideoPath
   };
 }
 
@@ -714,7 +781,7 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
   if (!ensureMediaToolsOrWarn()) {
     throw new Error('未检测到系统 ffmpeg/ffprobe 依赖，转换失败。');
   }
-  const { inputPath, exportFormat, start, duration, scaleWidth, fps, dither, speed } = args;
+  const { inputPath, exportFormat, start, duration, scaleWidth, fps, dither, speed, playMode } = args;
   
   const ext = path.extname(inputPath);
   const basePath = inputPath.substring(0, inputPath.length - ext.length);
@@ -736,7 +803,13 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
     const filterString = filters.join(',');
     const ditherStr = dither === 'none' ? 'dither=none' : `dither=${dither}`;
     
-    const cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=${ditherStr}" -y "${outputPath}"`;
+    let filterComplex = '';
+    if (playMode === 'alternate') {
+      filterComplex = `[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[bounced];[bounced]split[pa][pb];[pa]palettegen[p];[pb][p]paletteuse=${ditherStr}`;
+    } else {
+      filterComplex = `[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=${ditherStr}`;
+    }
+    const cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "${filterComplex}" -y "${outputPath}"`;
     
     try {
       await execPromise(cmd);
@@ -787,7 +860,12 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       if (hasLibwebp) {
         filters.push('format=yuv420p');
         const filterString = filters.join(',');
-        const cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -vf "${filterString}" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+        let cmd = '';
+        if (playMode === 'alternate') {
+          cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[out]" -map "[out]" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+        } else {
+          cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -vf "${filterString}" -vcodec libwebp -loop 0 -an -y "${outputPath}"`;
+        }
         await execPromise(cmd);
       } else {
         // Fallback: Generate a temp GIF using ffmpeg, then convert using gif2webp
@@ -795,8 +873,13 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
         filters.push('format=yuv420p');
         const filterString = filters.join(',');
         
-        // We use split + palettegen + paletteuse for high-quality GIF conversion first
-        const gifCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=floyd_steinberg" -y "${tempGifPath}"`;
+        let gifFilterComplex = '';
+        if (playMode === 'alternate') {
+          gifFilterComplex = `[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[bounced];[bounced]split[pa][pb];[pa]palettegen[p];[pb][p]paletteuse=dither=floyd_steinberg`;
+        } else {
+          gifFilterComplex = `[0:v]${filterString},split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=floyd_steinberg`;
+        }
+        const gifCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "${gifFilterComplex}" -y "${tempGifPath}"`;
         await execPromise(gifCmd);
         
         // Then convert GIF to WebP using gif2webp
@@ -843,7 +926,12 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
     
     const filterString = filters.join(',');
     
-    const cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -vf "${filterString}" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+    let cmd = '';
+    if (playMode === 'alternate') {
+      cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[out]" -map "[out]" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+    } else {
+      cmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -vf "${filterString}" -c:v apng -f apng -plays 0 -an -y "${outputPath}"`;
+    }
     
     try {
       await execPromise(cmd);
@@ -880,10 +968,16 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       await execPromise(imgCmd);
       
       let vidCmd = '';
+      const filters = [];
       if (speed !== 1.0) {
-        vidCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]setpts=PTS/${speed}[v]" -map "[v]" -c:v libx264 -pix_fmt yuv420p -an -y "${tempVidPath}"`;
+        filters.push(`setpts=PTS/${speed}`);
+      }
+      filters.push('format=yuv420p');
+      const filterString = filters.join(',');
+      if (playMode === 'alternate') {
+        vidCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -filter_complex "[0:v]${filterString}[pre];[pre]split[a][b];[b]reverse[r];[a][r]concat=n=2:v=1:a=0[out]" -map "[out]" -c:v libx264 -pix_fmt yuv420p -an -y "${tempVidPath}"`;
       } else {
-        vidCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -c:v libx264 -pix_fmt yuv420p -an -y "${tempVidPath}"`;
+        vidCmd = `ffmpeg -ss ${start} -t ${duration} -i "${inputPath}" -vf "${filterString}" -c:v libx264 -pix_fmt yuv420p -an -y "${tempVidPath}"`;
       }
       await execPromise(vidCmd);
       

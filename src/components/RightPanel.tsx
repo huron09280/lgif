@@ -24,6 +24,8 @@ interface RightPanelProps {
   setFrameRateDivisor: (v: number) => void;
   speedMultiplier: number;
   setSpeedMultiplier: (v: number) => void;
+  playMode: 'normal' | 'alternate';
+  setPlayMode: (v: 'normal' | 'alternate') => void;
   onSmartCompress: () => void;
   onManualCompress: () => void;
   loading: boolean;
@@ -35,6 +37,7 @@ export default function RightPanel({
   targetMB, setTargetMB: _setTargetMB, lossy, setLossy, colors, setColors, scaleWidth, setScaleWidth, originalWidth,
   optimizeLevel, setOptimizeLevel, dither, setDither, cropTransparency, setCropTransparency,
   frameRateDivisor, setFrameRateDivisor, speedMultiplier, setSpeedMultiplier,
+  playMode, setPlayMode,
   onSmartCompress, onManualCompress, loading, disabled
 }: RightPanelProps) {
   // 分辨率宽度手动输入状态
@@ -348,6 +351,28 @@ export default function RightPanel({
             ]}
             sx={{ mx: 0.5 }}
           />
+        </Box>
+
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">播放顺序 (Playback Order)</Typography>
+          </Box>
+          <ToggleButtonGroup
+            value={playMode}
+            exclusive
+            onChange={(_, val) => val && setPlayMode(val)}
+            fullWidth
+            size="small"
+            disabled={disabled}
+            sx={{ bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)', borderRadius: 1 }}
+          >
+            <ToggleButton value="normal" sx={{ py: 0.5, fontSize: 11 }}>
+              顺序播放
+            </ToggleButton>
+            <ToggleButton value="alternate" sx={{ py: 0.5, fontSize: 11 }}>
+              来回播放
+            </ToggleButton>
+          </ToggleButtonGroup>
         </Box>
 
         {exportFormat === 'gif' && (

@@ -16,10 +16,12 @@ declare global {
         cropTransparency: boolean;
         frameRateDivisor: number;
         speedMultiplier: number;
+        playMode?: 'normal' | 'alternate';
       }) => Promise<{ outputPath: string; size: number }>;
       compressGifSmart: (args: {
         inputPath: string;
         targetSizeMB: number;
+        playMode?: 'normal' | 'alternate';
       }) => Promise<{ outputPath: string; size: number; warning?: string }>;
       readGifBase64: (filePath: string) => Promise<string | null>;
       getFileStats: (filePath: string) => Promise<number>;
@@ -34,6 +36,7 @@ declare global {
         height: number;
         fps: number;
         previewBase64: string;
+        previewVideoPath?: string;
       } | null>;
       parseVideoPath: (filePath: string) => Promise<{
         path: string;
@@ -45,6 +48,7 @@ declare global {
         height: number;
         fps: number;
         previewBase64: string;
+        previewVideoPath?: string;
       } | null>;
       convertVideoToGif: (args: {
         inputPath: string;
@@ -55,6 +59,7 @@ declare global {
         fps: number;
         dither: 'bayer' | 'floyd_steinberg' | 'none';
         speed: number;
+        playMode?: 'normal' | 'alternate';
       }) => Promise<{
         outputPath: string;
         videoPath?: string;

@@ -27,3 +27,6 @@ dist-ssr
 dist-electron
 release
 scratch
+
+# Test files
+test_*

@@ -16,6 +16,8 @@ interface VideoRightPanelProps {
   setDither: (v: 'bayer' | 'floyd_steinberg' | 'none') => void;
   speed: number;
   setSpeed: (v: number) => void;
+  playMode: 'normal' | 'alternate';
+  setPlayMode: (v: 'normal' | 'alternate') => void;
   onConvert: () => void;
   loading: boolean;
   disabled: boolean;
@@ -28,6 +30,7 @@ export default function VideoRightPanel({
   fps, setFps,
   dither, setDither,
   speed, setSpeed,
+  playMode, setPlayMode,
   onConvert, loading, disabled
 }: VideoRightPanelProps) {
   
@@ -168,6 +171,29 @@ export default function VideoRightPanel({
             <MenuItem value={1.5}>1.5x</MenuItem>
             <MenuItem value={2.0}>2.0x 快速播放</MenuItem>
           </Select>
+        </Box>
+
+        {/* 3. Playback Order */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">播放顺序 (Playback Order)</Typography>
+          </Box>
+          <ToggleButtonGroup
+            value={playMode}
+            exclusive
+            onChange={(_, val) => val && setPlayMode(val)}
+            fullWidth
+            size="small"
+            disabled={disabled}
+            sx={{ bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)', borderRadius: 1 }}
+          >
+            <ToggleButton value="normal" sx={{ py: 0.5, fontSize: 11 }}>
+              顺序播放
+            </ToggleButton>
+            <ToggleButton value="alternate" sx={{ py: 0.5, fontSize: 11 }}>
+              来回播放
+            </ToggleButton>
+          </ToggleButtonGroup>
         </Box>
 
         <Divider sx={{ my: 1, borderColor: 'divider' }} />
