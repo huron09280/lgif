@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadSettings: () => ipcRenderer.invoke('load-settings'),
   saveSettings: (settings: any) => ipcRenderer.invoke('save-settings', settings),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  onCompressProgress: (callback: any) => {
+    const subscription = (event: any, value: number) => callback(value);
+    ipcRenderer.on('compress-progress', subscription);
+    return () => {
+      ipcRenderer.removeListener('compress-progress', subscription);
+    };
+  },
 });

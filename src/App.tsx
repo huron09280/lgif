@@ -1,11 +1,29 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Button, Paper, CircularProgress, Chip, IconButton, alpha, SvgIcon } from '@mui/material';
+import { Box, Typography, Button, Paper, CircularProgress, Chip, IconButton, alpha, SvgIcon, Alert, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { CloudUpload, SaveAlt, DeleteOutlined, CheckCircleOutlined, FolderOpen, Close, ClearAll } from '@mui/icons-material';
 import Sidebar from './components/Sidebar';
 import logoImg from './assets/logo.png';
 import RightPanel from './components/RightPanel';
 import VideoRightPanel from './components/VideoRightPanel';
 import ImageSlider from './components/ImageSlider';
+import SideBySideView from './components/SideBySideView';
+
+// Slider view icon (vertical split with arrows)
+const SliderIcon = (props: any) => (
+  <SvgIcon {...props}>
+    <path d="M12 2v20M9 8l-3 4 3 4M15 8l3 4-3 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </SvgIcon>
+);
+
+// Side-by-side view icon (two columns/rectangles)
+const SideBySideIcon = (props: any) => (
+  <SvgIcon {...props}>
+    <path d="M3 5h8v14H3V5zm10 0h8v14h-8V5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </SvgIcon>
+);
+
+// Static preview threshold to avoid GPU/browser crashes on huge files
+const STATIC_PREVIEW_LIMIT = Infinity; // Disable static preview limit, play all sizes
 
 // Custom Menu Icon with shorter horizontal lines
 const CustomMenuIcon = (props: any) => (
@@ -80,6 +98,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'compress' | 'videoToGif'>('compress');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [compressProgress, setCompressProgress] = useState(0);
+  const [comparisonMode, setComparisonMode] = useState<'slider' | 'sideBySide'>('slider');
 
   // ==========================================
   // Tab 1: GIF Compression States & Handlers
@@ -134,6 +154,15 @@ export default function App() {
     return saved !== null && (saved === 'normal' || saved === 'alternate') ? (saved as 'normal' | 'alternate') : 'normal';
   });
 
+  const [gifClarity, setGifClarity] = useState<number>(() => {
+    const saved = localStorage.getItem('gif_clarity');
+    return saved !== null ? parseInt(saved, 10) : 0;
+  });
+  const [gifSharpness, setGifSharpness] = useState<number>(() => {
+    const saved = localStorage.getItem('gif_sharpness');
+    return saved !== null ? parseInt(saved, 10) : 0;
+  });
+
   // ==========================================
   // Tab 2: Video & Live Photo States (Required for settings sync context)
   // ==========================================
@@ -144,6 +173,14 @@ export default function App() {
   const [videoPlayMode, setVideoPlayMode] = useState<'normal' | 'alternate'>(() => {
     const saved = localStorage.getItem('video_playMode');
     return saved !== null && (saved === 'normal' || saved === 'alternate') ? (saved as 'normal' | 'alternate') : 'normal';
+  });
+  const [videoClarity, setVideoClarity] = useState<number>(() => {
+    const saved = localStorage.getItem('video_clarity');
+    return saved !== null ? parseInt(saved, 10) : 0;
+  });
+  const [videoSharpness, setVideoSharpness] = useState<number>(() => {
+    const saved = localStorage.getItem('video_sharpness');
+    return saved !== null ? parseInt(saved, 10) : 0;
   });
 
   // Load settings on mount from backend configuration file
@@ -169,6 +206,11 @@ export default function App() {
           if (saved.speed !== undefined) setSpeed(saved.speed);
           if (saved.videoPlayMode !== undefined) setVideoPlayMode(saved.videoPlayMode);
           if (saved.gifExportFormat !== undefined) setGifExportFormat(saved.gifExportFormat);
+
+          if (saved.gifClarity !== undefined) setGifClarity(saved.gifClarity);
+          if (saved.gifSharpness !== undefined) setGifSharpness(saved.gifSharpness);
+          if (saved.videoClarity !== undefined) setVideoClarity(saved.videoClarity);
+          if (saved.videoSharpness !== undefined) setVideoSharpness(saved.videoSharpness);
         }
       } catch (err) {
         console.error('Failed to load settings from main process:', err);
@@ -178,6 +220,23 @@ export default function App() {
     };
     initSettings();
   }, []);
+
+  // Listen to compression progress from the main process
+  useEffect(() => {
+    const unsub = window.electronAPI.onCompressProgress((progress: number) => {
+      setCompressProgress(progress);
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
+
+  // Reset progress when loading completes
+  useEffect(() => {
+    if (!loading) {
+      setCompressProgress(0);
+    }
+  }, [loading]);
 
   // Save settings on update
   useEffect(() => {
@@ -198,7 +257,11 @@ export default function App() {
       videoDither,
       speed,
       videoPlayMode,
-      gifExportFormat
+      gifExportFormat,
+      gifClarity,
+      gifSharpness,
+      videoClarity,
+      videoSharpness
     };
     
     // Backup to localStorage
@@ -213,6 +276,10 @@ export default function App() {
     localStorage.setItem('gif_speedMultiplier', String(speedMultiplier));
     localStorage.setItem('gif_playMode', gifPlayMode);
     localStorage.setItem('video_playMode', videoPlayMode);
+    localStorage.setItem('gif_clarity', String(gifClarity));
+    localStorage.setItem('gif_sharpness', String(gifSharpness));
+    localStorage.setItem('video_clarity', String(videoClarity));
+    localStorage.setItem('video_sharpness', String(videoSharpness));
 
     window.electronAPI.saveSettings(settings).catch((err) => {
       console.error('Failed to save settings:', err);
@@ -234,7 +301,11 @@ export default function App() {
     videoDither,
     speed,
     videoPlayMode,
-    gifExportFormat
+    gifExportFormat,
+    gifClarity,
+    gifSharpness,
+    videoClarity,
+    videoSharpness
   ]);
 
   const formatSize = (bytes: number) => {
@@ -248,7 +319,8 @@ export default function App() {
       if (filePaths.length === 1 && batchFiles.length === 0) {
         const filePath = filePaths[0];
         const size = await window.electronAPI.getFileStats(filePath);
-        const base64 = `media://${filePath}`;
+        const isLargeFile = size >= STATIC_PREVIEW_LIMIT;
+        const base64 = `media://${filePath}${isLargeFile ? '?static=true' : ''}`;
         const frameCount = await window.electronAPI.getFrameCount(filePath);
         let width = 0, height = 0;
         if (base64) {
@@ -411,7 +483,9 @@ export default function App() {
             cropTransparency,
             frameRateDivisor,
             speedMultiplier,
-            playMode: gifPlayMode
+            playMode: gifPlayMode,
+            clarity: gifClarity,
+            sharpness: gifSharpness
           });
         }
 
@@ -464,7 +538,9 @@ export default function App() {
         cropTransparency,
         frameRateDivisor,
         speedMultiplier,
-        playMode: gifPlayMode
+        playMode: gifPlayMode,
+        clarity: gifClarity,
+        sharpness: gifSharpness
       });
       const base64 = `media://${res.outputPath}?t=${Date.now()}`;
       const frameCount = await window.electronAPI.getFrameCount(res.outputPath);
@@ -553,7 +629,9 @@ export default function App() {
         fps,
         dither: videoDither,
         speed,
-        playMode: videoPlayMode
+        playMode: videoPlayMode,
+        clarity: videoClarity,
+        sharpness: videoSharpness
       });
       setVideoConvertedFile(res);
     } catch (err: any) {
@@ -712,7 +790,7 @@ export default function App() {
           // ==========================================
           // Tab 1: GIF Compression View
           // ==========================================
-          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
+          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflow: 'hidden' }}>
             {/* Header */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -741,23 +819,67 @@ export default function App() {
                 </Typography>
               </Box>
               {(originalFile || batchFiles.length > 0) && (
-                <Button 
-                  variant="outlined" 
-                  startIcon={<DeleteOutlined />} 
-                  onClick={batchFiles.length > 0 ? handleClearBatch : handleRemove}
-                  size="small"
-                  disabled={loading || isBatchCompressing}
-                  sx={{ borderRadius: 6, borderColor: 'divider', color: 'text.primary' }}
-                >
-                  移除全部文件
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  {originalFile && compressedFile && (
+                    <ToggleButtonGroup
+                      value={comparisonMode}
+                      exclusive
+                      onChange={(_e, val) => val && setComparisonMode(val)}
+                      size="small"
+                      sx={{ 
+                        height: 32, 
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 6,
+                        bgcolor: 'background.paper',
+                        overflow: 'hidden',
+                        '& .MuiToggleButton-root': {
+                          px: 1.5,
+                          py: 0,
+                          border: 'none',
+                          color: 'text.secondary',
+                          fontSize: '0.8rem',
+                          fontWeight: 'bold',
+                          gap: 0.5,
+                          textTransform: 'none',
+                          '&.Mui-selected': {
+                            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
+                            color: 'primary.main',
+                            '&:hover': {
+                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.15),
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      <ToggleButton value="slider">
+                        <SliderIcon sx={{ fontSize: 16 }} />
+                        滑动对比
+                      </ToggleButton>
+                      <ToggleButton value="sideBySide">
+                        <SideBySideIcon sx={{ fontSize: 16 }} />
+                        左右对比
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  )}
+                  <Button 
+                    variant="outlined" 
+                    startIcon={<DeleteOutlined />} 
+                    onClick={batchFiles.length > 0 ? handleClearBatch : handleRemove}
+                    size="small"
+                    disabled={loading || isBatchCompressing}
+                    sx={{ borderRadius: 6, borderColor: 'divider', color: 'text.primary' }}
+                  >
+                    移除全部文件
+                  </Button>
+                </Box>
               )}
             </Box>
 
             {/* Main Display Area */}
             <Paper sx={{ 
               flex: 1, 
-              minHeight: 360,
+              minHeight: 200,
               display: 'flex', 
               flexDirection: 'column', 
               bgcolor: 'background.paper',
@@ -938,7 +1060,13 @@ export default function App() {
                 // ==========================================
                 // Single file comparison view
                 // ==========================================
-                <Box sx={{ flex: 1, p: 2 }}>
+                <Box sx={{ flex: 1, p: 2, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }}>
+                  {/* Warning banner for large files */}
+                  {(originalFile.size >= STATIC_PREVIEW_LIMIT || (compressedFile && compressedFile.size >= STATIC_PREVIEW_LIMIT)) && (
+                    <Alert severity="warning" sx={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5, borderRadius: 1.5, opacity: 0.9 }}>
+                      文件体积较大（&gt;50MB），已启用静态预览以防止浏览器崩溃，最终保存的仍为动态图。
+                    </Alert>
+                  )}
                   {!compressedFile ? (
                     <Box 
                       component="img"
@@ -951,19 +1079,43 @@ export default function App() {
                         bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0a0a0c' : '#F3F4F6' 
                       }} 
                     />
-                  ) : (
+                  ) : comparisonMode === 'slider' ? (
                     <ImageSlider 
-                      key={`${compressedFile.path}_${compressedFile.size}`}
-                      originalSrc={originalFile.base64!} 
-                      compressedSrc={compressedFile.base64!} 
+                      key={`${compressedFile.path}_${compressedFile.base64 || ''}`}
+                      originalSrc={originalFile.base64! + ((originalFile.size >= STATIC_PREVIEW_LIMIT || compressedFile.size >= STATIC_PREVIEW_LIMIT) ? (originalFile.base64!.includes('?') ? '&static=true' : '?static=true') : '')} 
+                      compressedSrc={compressedFile.base64! + ((originalFile.size >= STATIC_PREVIEW_LIMIT || compressedFile.size >= STATIC_PREVIEW_LIMIT) ? (compressedFile.base64!.includes('?') ? '&static=true' : '?static=true') : '')} 
+                    />
+                  ) : (
+                    <SideBySideView 
+                      key={`side_${compressedFile.path}_${compressedFile.base64 || ''}`}
+                      originalSrc={originalFile.base64! + ((originalFile.size >= STATIC_PREVIEW_LIMIT || compressedFile.size >= STATIC_PREVIEW_LIMIT) ? (originalFile.base64!.includes('?') ? '&static=true' : '?static=true') : '')} 
+                      compressedSrc={compressedFile.base64! + ((originalFile.size >= STATIC_PREVIEW_LIMIT || compressedFile.size >= STATIC_PREVIEW_LIMIT) ? (compressedFile.base64!.includes('?') ? '&static=true' : '?static=true') : '')} 
                     />
                   )}
                 </Box>
               )}
               
               {loading && !isBatchCompressing && (
-                <Box sx={{ position: 'absolute', inset: 0, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(20,20,25,0.8)' : 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-                  <CircularProgress size={60} thickness={4} />
+                <Box sx={{ position: 'absolute', inset: 0, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(20,20,25,0.85)' : 'rgba(255,255,255,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2.5, zIndex: 10 }}>
+                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress 
+                      variant={compressProgress > 0 ? "determinate" : "indeterminate"} 
+                      value={compressProgress} 
+                      size={80} 
+                      thickness={4} 
+                      sx={{ color: '#A77DFA' }}
+                    />
+                    {compressProgress > 0 && (
+                      <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography variant="caption" component="div" sx={{ fontWeight: 'bold', fontSize: 16 }} color="text.secondary">
+                          {`${Math.round(compressProgress)}%`}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                    {compressProgress > 0 ? `优化处理中... ${Math.round(compressProgress)}%` : '准备优化...'}
+                  </Typography>
                 </Box>
               )}
             </Paper>
@@ -1064,7 +1216,7 @@ export default function App() {
           // ==========================================
           // Tab 2: Video & Live Photo View
           // ==========================================
-          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto' }}>
+          <Box sx={{ flex: 1, px: 4, pt: 1, pb: 4, display: 'flex', flexDirection: 'column', gap: 3, overflow: 'hidden' }}>
             {/* Header */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1091,22 +1243,66 @@ export default function App() {
                 <Typography variant="h6" sx={{ fontWeight: 'bold' }}>视频转换器</Typography>
               </Box>
               {videoOriginalFile && (
-                <Button 
-                  variant="outlined" 
-                  startIcon={<DeleteOutlined />} 
-                  onClick={handleRemoveVideo}
-                  size="small"
-                  sx={{ borderRadius: 6, borderColor: 'divider', color: 'text.primary' }}
-                >
-                  移除视频
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  {videoConvertedFile && !videoConvertedFile.isLivePhoto && (
+                    <ToggleButtonGroup
+                      value={comparisonMode}
+                      exclusive
+                      onChange={(_e, val) => val && setComparisonMode(val)}
+                      size="small"
+                      sx={{ 
+                        height: 32, 
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 6,
+                        bgcolor: 'background.paper',
+                        overflow: 'hidden',
+                        '& .MuiToggleButton-root': {
+                          px: 1.5,
+                          py: 0,
+                          border: 'none',
+                          color: 'text.secondary',
+                          fontSize: '0.8rem',
+                          fontWeight: 'bold',
+                          gap: 0.5,
+                          textTransform: 'none',
+                          '&.Mui-selected': {
+                            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1),
+                            color: 'primary.main',
+                            '&:hover': {
+                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.15),
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      <ToggleButton value="slider">
+                        <SliderIcon sx={{ fontSize: 16 }} />
+                        滑动对比
+                      </ToggleButton>
+                      <ToggleButton value="sideBySide">
+                        <SideBySideIcon sx={{ fontSize: 16 }} />
+                        左右对比
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  )}
+                  <Button 
+                    variant="outlined" 
+                    startIcon={<DeleteOutlined />} 
+                    onClick={handleRemoveVideo}
+                    size="small"
+                    sx={{ borderRadius: 6, borderColor: 'divider', color: 'text.primary' }}
+                  >
+                    移除视频
+                  </Button>
+                </Box>
               )}
             </Box>
 
             {/* Main Display Area */}
             <Paper sx={{ 
               flex: 1, 
-              minHeight: 360,
+              minHeight: 200,
               display: 'flex', 
               flexDirection: 'column', 
               bgcolor: 'background.paper',
@@ -1124,7 +1320,13 @@ export default function App() {
                   <Typography variant="caption" color="text.secondary">支持 MP4, MOV, WEBM 以及实况照片 (HEIC/JPG + MOV)</Typography>
                 </Box>
               ) : (
-                <Box sx={{ flex: 1, p: 2, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ flex: 1, p: 2, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                  {/* Warning banner for large files */}
+                  {(videoConvertedFile && !videoConvertedFile.isLivePhoto && videoConvertedFile.size >= STATIC_PREVIEW_LIMIT) && (
+                    <Alert severity="warning" sx={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5, borderRadius: 1.5, opacity: 0.9 }}>
+                      输出文件体积较大（&gt;50MB），已启用静态预览以防止浏览器崩溃，最终保存的仍为动态图。
+                    </Alert>
+                  )}
                   {/* Info Badge */}
                   {videoOriginalFile.isLivePhoto && (
                     <Box sx={{ mb: 1.5 }}>
@@ -1138,7 +1340,7 @@ export default function App() {
                     </Box>
                   )}
                   
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                     {!videoConvertedFile ? (
                       <video 
                         src={`media://${videoOriginalFile.previewVideoPath || videoOriginalFile.videoPath}`}
@@ -1163,11 +1365,17 @@ export default function App() {
                             bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0a0a0c' : '#F3F4F6' 
                           }} 
                         />
-                      ) : (
+                      ) : comparisonMode === 'slider' ? (
                         <ImageSlider 
-                          key={`${videoConvertedFile.outputPath}_${videoConvertedFile.size}`}
+                          key={`${videoConvertedFile.outputPath}_${videoConvertedFile.base64}`}
                           originalSrc={videoOriginalFile.previewBase64} 
-                          compressedSrc={videoConvertedFile.base64} 
+                          compressedSrc={videoConvertedFile.base64 + (videoConvertedFile.size >= STATIC_PREVIEW_LIMIT ? (videoConvertedFile.base64.includes('?') ? '&static=true' : '?static=true') : '')} 
+                        />
+                      ) : (
+                        <SideBySideView 
+                          key={`side_${videoConvertedFile.outputPath}_${videoConvertedFile.base64}`}
+                          originalSrc={videoOriginalFile.previewBase64} 
+                          compressedSrc={videoConvertedFile.base64 + (videoConvertedFile.size >= STATIC_PREVIEW_LIMIT ? (videoConvertedFile.base64.includes('?') ? '&static=true' : '?static=true') : '')} 
                         />
                       )
                     )}
@@ -1176,8 +1384,26 @@ export default function App() {
               )}
               
               {loading && (
-                <Box sx={{ position: 'absolute', inset: 0, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(20,20,25,0.8)' : 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-                  <CircularProgress size={60} thickness={4} />
+                <Box sx={{ position: 'absolute', inset: 0, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(20,20,25,0.85)' : 'rgba(255,255,255,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2.5, zIndex: 10 }}>
+                  <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                    <CircularProgress 
+                      variant={compressProgress > 0 ? "determinate" : "indeterminate"} 
+                      value={compressProgress} 
+                      size={80} 
+                      thickness={4} 
+                      sx={{ color: '#A77DFA' }}
+                    />
+                    {compressProgress > 0 && (
+                      <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography variant="caption" component="div" sx={{ fontWeight: 'bold', fontSize: 16 }} color="text.secondary">
+                          {`${Math.round(compressProgress)}%`}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'text.secondary' }}>
+                    {compressProgress > 0 ? `转换处理中... ${Math.round(compressProgress)}%` : '准备转换...'}
+                  </Typography>
                 </Box>
               )}
             </Paper>
@@ -1267,6 +1493,10 @@ export default function App() {
           frameRateDivisor={frameRateDivisor} setFrameRateDivisor={setFrameRateDivisor}
           speedMultiplier={speedMultiplier} setSpeedMultiplier={setSpeedMultiplier}
           playMode={gifPlayMode} setPlayMode={setGifPlayMode}
+          clarity={gifClarity}
+          setClarity={setGifClarity}
+          sharpness={gifSharpness}
+          setSharpness={setGifSharpness}
           onSmartCompress={batchFiles.length > 0 ? () => handleBatchCompress('smart') : handleSmartCompress}
           onManualCompress={batchFiles.length > 0 ? () => handleBatchCompress('manual') : handleManualCompress}
           loading={loading || isBatchCompressing}
@@ -1290,6 +1520,10 @@ export default function App() {
           setSpeed={setSpeed}
           playMode={videoPlayMode}
           setPlayMode={setVideoPlayMode}
+          clarity={videoClarity}
+          setClarity={setVideoClarity}
+          sharpness={videoSharpness}
+          setSharpness={setVideoSharpness}
           onConvert={handleVideoConvert}
           loading={loading}
           disabled={!videoOriginalFile}

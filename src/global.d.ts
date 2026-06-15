@@ -17,6 +17,8 @@ declare global {
         frameRateDivisor: number;
         speedMultiplier: number;
         playMode?: 'normal' | 'alternate';
+        clarity?: number;
+        sharpness?: number;
       }) => Promise<{ outputPath: string; size: number }>;
       compressGifSmart: (args: {
         inputPath: string;
@@ -60,6 +62,8 @@ declare global {
         dither: 'bayer' | 'floyd_steinberg' | 'none';
         speed: number;
         playMode?: 'normal' | 'alternate';
+        clarity?: number;
+        sharpness?: number;
       }) => Promise<{
         outputPath: string;
         videoPath?: string;
@@ -74,6 +78,7 @@ declare global {
       loadSettings: () => Promise<any>;
       saveSettings: (settings: any) => Promise<boolean>;
       getPathForFile: (file: File) => string;
+      onCompressProgress: (callback: (progress: number) => void) => () => void;
     };
   }
 }

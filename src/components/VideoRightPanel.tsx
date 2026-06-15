@@ -18,6 +18,10 @@ interface VideoRightPanelProps {
   setSpeed: (v: number) => void;
   playMode: 'normal' | 'alternate';
   setPlayMode: (v: 'normal' | 'alternate') => void;
+  clarity: number;
+  setClarity: (v: number) => void;
+  sharpness: number;
+  setSharpness: (v: number) => void;
   onConvert: () => void;
   loading: boolean;
   disabled: boolean;
@@ -31,6 +35,8 @@ export default function VideoRightPanel({
   dither, setDither,
   speed, setSpeed,
   playMode, setPlayMode,
+  clarity, setClarity,
+  sharpness, setSharpness,
   onConvert, loading, disabled
 }: VideoRightPanelProps) {
   
@@ -196,6 +202,64 @@ export default function VideoRightPanel({
           </ToggleButtonGroup>
         </Box>
 
+        <Divider sx={{ my: 1.5, borderColor: 'divider' }} />
+
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+          画面效果微调 (Effects)
+        </Typography>
+
+        {/* Clarity Slider */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">清晰度 (Clarity)</Typography>
+            <Chip 
+              label={clarity === 0 ? '无' : `+${clarity}%`} 
+              size="small" 
+              sx={{ 
+                bgcolor: (theme) => clarity === 0 ? 'action.hover' : alpha(theme.palette.success.main, 0.1), 
+                color: clarity === 0 ? 'text.secondary' : 'success.main', 
+                fontWeight: 'bold', 
+                height: 22, 
+                borderRadius: 1 
+              }} 
+            />
+          </Box>
+          <Slider 
+            value={clarity} 
+            onChange={(_, v) => setClarity(v as number)} 
+            min={0} 
+            max={100} 
+            disabled={disabled}
+            color="success"
+          />
+        </Box>
+
+        {/* Sharpness Slider */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">锐度 (Sharpness)</Typography>
+            <Chip 
+              label={sharpness === 0 ? '无' : `+${sharpness}%`} 
+              size="small" 
+              sx={{ 
+                bgcolor: (theme) => sharpness === 0 ? 'action.hover' : alpha(theme.palette.success.main, 0.1), 
+                color: sharpness === 0 ? 'text.secondary' : 'success.main', 
+                fontWeight: 'bold', 
+                height: 22, 
+                borderRadius: 1 
+              }} 
+            />
+          </Box>
+          <Slider 
+            value={sharpness} 
+            onChange={(_, v) => setSharpness(v as number)} 
+            min={0} 
+            max={100} 
+            disabled={disabled}
+            color="success"
+          />
+        </Box>
+
         <Divider sx={{ my: 1, borderColor: 'divider' }} />
 
         {/* Settings for GIF, WebP, and APNG */}
@@ -218,6 +282,11 @@ export default function VideoRightPanel({
                 max={originalWidth || 1920} 
                 disabled={disabled}
               />
+              {originalWidth > 1000 && (
+                <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5, fontSize: 10, lineHeight: 1.4 }}>
+                  ⚠️ 提示：原始视频分辨率过大（{originalWidth}px），建议限制宽度在 600px 左右，以契合平台限制，并防止内存占用过高导致预览区空白。
+                </Typography>
+              )}
             </Box>
 
             {/* 4. Frame rate */}

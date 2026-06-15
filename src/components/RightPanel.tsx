@@ -26,6 +26,10 @@ interface RightPanelProps {
   setSpeedMultiplier: (v: number) => void;
   playMode: 'normal' | 'alternate';
   setPlayMode: (v: 'normal' | 'alternate') => void;
+  clarity: number;
+  setClarity: (v: number) => void;
+  sharpness: number;
+  setSharpness: (v: number) => void;
   onSmartCompress: () => void;
   onManualCompress: () => void;
   loading: boolean;
@@ -38,6 +42,7 @@ export default function RightPanel({
   optimizeLevel, setOptimizeLevel, dither, setDither, cropTransparency, setCropTransparency,
   frameRateDivisor, setFrameRateDivisor, speedMultiplier, setSpeedMultiplier,
   playMode, setPlayMode,
+  clarity, setClarity, sharpness, setSharpness,
   onSmartCompress, onManualCompress, loading, disabled
 }: RightPanelProps) {
   // 分辨率宽度手动输入状态
@@ -261,6 +266,11 @@ export default function RightPanel({
             max={originalWidth > 0 ? originalWidth : 2000} 
             disabled={originalWidth <= 0}
           />
+          {originalWidth > 1000 && (
+            <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5, fontSize: 10, lineHeight: 1.4 }}>
+              ⚠️ 提示：原始分辨率过大（{originalWidth}px），建议限制宽度在 600px 左右，以契合社交平台限制，并防止内存占用过高导致预览区空白。
+            </Typography>
+          )}
         </Box>
 
         {exportFormat === 'gif' && (
@@ -384,6 +394,64 @@ export default function RightPanel({
             <Slider value={lossy} onChange={(_, v) => setLossy(v as number)} min={0} max={200} />
           </Box>
         )}
+
+        <Divider sx={{ my: 1.5, borderColor: 'divider' }} />
+
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+          画面效果微调 (Effects)
+        </Typography>
+
+        {/* Clarity Slider */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">清晰度 (Clarity)</Typography>
+            <Chip 
+              label={clarity === 0 ? '无' : `+${clarity}%`} 
+              size="small" 
+              sx={{ 
+                bgcolor: (theme) => clarity === 0 ? 'action.hover' : alpha(theme.palette.success.main, 0.1), 
+                color: clarity === 0 ? 'text.secondary' : 'success.main', 
+                fontWeight: 'bold', 
+                height: 22, 
+                borderRadius: 1 
+              }} 
+            />
+          </Box>
+          <Slider 
+            value={clarity} 
+            onChange={(_, v) => setClarity(v as number)} 
+            min={0} 
+            max={100} 
+            disabled={disabled}
+            color="success"
+          />
+        </Box>
+
+        {/* Sharpness Slider */}
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="caption" color="text.secondary">锐度 (Sharpness)</Typography>
+            <Chip 
+              label={sharpness === 0 ? '无' : `+${sharpness}%`} 
+              size="small" 
+              sx={{ 
+                bgcolor: (theme) => sharpness === 0 ? 'action.hover' : alpha(theme.palette.success.main, 0.1), 
+                color: sharpness === 0 ? 'text.secondary' : 'success.main', 
+                fontWeight: 'bold', 
+                height: 22, 
+                borderRadius: 1 
+              }} 
+            />
+          </Box>
+          <Slider 
+            value={sharpness} 
+            onChange={(_, v) => setSharpness(v as number)} 
+            min={0} 
+            max={100} 
+            disabled={disabled}
+            color="success"
+          />
+        </Box>
 
         <Button 
           fullWidth 

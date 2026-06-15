@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Box, Typography, CircularProgress } from '@mui/material';
 
 interface ImageSliderProps {
@@ -12,16 +12,11 @@ export default function ImageSlider({ originalSrc, compressedSrc }: ImageSliderP
   const [compressedLoaded, setCompressedLoaded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Track sources during render to reset loaded states synchronously when props change
-  const [prevOriginalSrc, setPrevOriginalSrc] = useState(originalSrc);
-  const [prevCompressedSrc, setPrevCompressedSrc] = useState(compressedSrc);
-
-  if (prevOriginalSrc !== originalSrc || prevCompressedSrc !== compressedSrc) {
+  // Reset loaded states when sources change
+  useEffect(() => {
     setOriginalLoaded(false);
     setCompressedLoaded(false);
-    setPrevOriginalSrc(originalSrc);
-    setPrevCompressedSrc(compressedSrc);
-  }
+  }, [originalSrc, compressedSrc]);
 
   const isLoaded = originalLoaded && compressedLoaded;
 
