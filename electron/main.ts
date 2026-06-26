@@ -660,22 +660,26 @@ ipcMain.handle('compress-gif-manual', async (event, args) => {
   }
 });
 
-// IPC handler for smart compression (target MB) with parallel execution
-ipcMain.handle('compress-gif-smart', async (event, args) => {
-  const { inputPath, targetSizeMB, playMode } = args;
+// Helper for smart compression (target MB) with parallel execution
+async function runSmartCompression(
+  inputPath: string,
+  targetSizeMB: number,
+  playMode: string,
+  progressStart = 0,
+  progressEnd = 100
+) {
   const targetSizeBytes = targetSizeMB * 1024 * 1024;
-  
   const ext = path.extname(inputPath);
   const basePath = inputPath.substring(0, inputPath.length - ext.length);
   const finalOutputPath = `${basePath}_smart_compressed${ext}`;
 
-  sendProgress(0);
+  sendProgress(progressStart);
 
   // Initial stats
   const initialStats = fs.statSync(inputPath);
   if (initialStats.size <= targetSizeBytes && playMode !== 'alternate') {
     fs.copyFileSync(inputPath, finalOutputPath);
-    sendProgress(100);
+    sendProgress(progressEnd);
     return { outputPath: finalOutputPath, size: initialStats.size };
   }
 
@@ -691,18 +695,18 @@ ipcMain.handle('compress-gif-smart', async (event, args) => {
   ];
 
   let completedCount = 0;
-  sendProgress(5);
+  sendProgress(progressStart + 0.05 * (progressEnd - progressStart));
 
   const promises = strategies.map(async (strategy) => {
     const outputPath = `${basePath}_smart_temp_${strategy.name}${ext}`;
     try {
       const size = await executeGifsicle(inputPath, outputPath, { ...strategy, playMode, frameCount });
       completedCount++;
-      sendProgress(5 + (completedCount / strategies.length) * 90);
+      sendProgress(progressStart + (0.05 + 0.9 * (completedCount / strategies.length)) * (progressEnd - progressStart));
       return { strategy: strategy.name, outputPath, size };
     } catch (error) {
       completedCount++;
-      sendProgress(5 + (completedCount / strategies.length) * 90);
+      sendProgress(progressStart + (0.05 + 0.9 * (completedCount / strategies.length)) * (progressEnd - progressStart));
       throw error;
     }
   });
@@ -740,11 +744,17 @@ ipcMain.handle('compress-gif-smart', async (event, args) => {
   }
 
   if (bestResult) {
-    sendProgress(100);
+    sendProgress(progressEnd);
     return { outputPath: finalOutputPath, size: bestResult.size };
   } else {
     throw new Error('All compression strategies failed.');
   }
+}
+
+// IPC handler for smart compression (target MB) with parallel execution
+ipcMain.handle('compress-gif-smart', async (event, args) => {
+  const { inputPath, targetSizeMB, playMode } = args;
+  return runSmartCompression(inputPath, targetSizeMB, playMode, 0, 100);
 });
 
 const getSettingsPath = () => {
@@ -973,7 +983,25 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
   if (!ensureMediaToolsOrWarn()) {
     throw new Error('未检测到系统 ffmpeg/ffprobe 依赖，转换失败。');
   }
-  const { inputPath, exportFormat, start, duration, scaleWidth, fps, dither, speed, playMode, clarity = 0, sharpness = 0 } = args;
+  const { 
+    inputPath, 
+    exportFormat, 
+    start, 
+    duration, 
+    scaleWidth, 
+    fps, 
+    dither, 
+    speed, 
+    playMode, 
+    clarity = 0, 
+    sharpness = 0,
+    smartCompress,
+    targetSizeMB,
+    optimizeLevel,
+    colors,
+    lossy,
+    cropTransparency
+  } = args;
   
   sendProgress(0);
 
@@ -981,7 +1009,10 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
   const basePath = inputPath.substring(0, inputPath.length - ext.length);
   
   if (exportFormat === 'gif') {
-    const outputPath = `${basePath}_converted_${Date.now()}.gif`;
+    const runCompression = smartCompress || optimizeLevel !== undefined;
+    const rawGifPath = runCompression 
+      ? `${basePath}_raw_${Date.now()}.gif` 
+      : `${basePath}_converted_${Date.now()}.gif`;
     
     const filters: string[] = [];
     if (speed !== 1.0) {
@@ -1010,24 +1041,57 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       '-t', String(duration),
       '-i', inputPath,
       '-filter_complex', filterComplex,
-      '-y', outputPath
+      '-y', rawGifPath
     ];
     
     try {
       const totalFrames = Math.max(1, Math.round(duration * fps * (playMode === 'alternate' ? 2 : 1)));
-      await runFfmpegWithProgress(cmdArgs, totalFrames, 0, 95);
+      const ffmpegEndProgress = runCompression ? 70 : 95;
+      await runFfmpegWithProgress(cmdArgs, totalFrames, 0, ffmpegEndProgress);
       
-      const size = fs.statSync(outputPath).size;
-      const base64 = `media://${outputPath}`;
-      const finalFrameCount = await getFrameCount(outputPath);
+      let finalPath = rawGifPath;
       
-      const gifStreamCmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${outputPath}"`;
+      if (runCompression) {
+        sendProgress(75);
+        if (smartCompress) {
+          const smartRes = await runSmartCompression(rawGifPath, targetSizeMB || 5.0, playMode, 75, 95);
+          finalPath = smartRes.outputPath;
+        } else {
+          const manualOutputPath = `${basePath}_converted_${Date.now()}.gif`;
+          const finalFrameCount = await getFrameCount(rawGifPath);
+          await executeGifsicle(rawGifPath, manualOutputPath, {
+            optimizeLevel: optimizeLevel || 3,
+            lossy,
+            colors,
+            cropTransparency,
+            dither: dither === 'floyd_steinberg' || dither === true,
+            frameCount: finalFrameCount
+          });
+          finalPath = manualOutputPath;
+          sendProgress(95);
+        }
+        
+        // Cleanup intermediate raw GIF
+        try {
+          if (fs.existsSync(rawGifPath)) {
+            fs.unlinkSync(rawGifPath);
+          }
+        } catch (e) {
+          console.error('Failed to delete temporary raw GIF file:', e);
+        }
+      }
+      
+      const size = fs.statSync(finalPath).size;
+      const base64 = `media://${finalPath}`;
+      const finalFrameCount = await getFrameCount(finalPath);
+      
+      const gifStreamCmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${finalPath}"`;
       const { stdout: gifStreamOut } = await execPromise(gifStreamCmd);
       const [gifW, gifH] = gifStreamOut.trim().split('x');
       
       sendProgress(100);
       return {
-        outputPath,
+        outputPath: finalPath,
         size,
         base64,
         width: parseInt(gifW, 10),
@@ -1036,6 +1100,9 @@ ipcMain.handle('convert-video-to-gif', async (event, args) => {
       };
     } catch (err: any) {
       console.error('Error converting video to GIF:', err);
+      if (runCompression && fs.existsSync(rawGifPath)) {
+        try { fs.unlinkSync(rawGifPath); } catch (e) {}
+      }
       throw new Error(err.message || '转换 GIF 失败');
     }
   } else if (exportFormat === 'webp') {

@@ -183,6 +183,23 @@ export default function App() {
     return saved !== null ? parseInt(saved, 10) : 0;
   });
 
+  const [videoLossy, setVideoLossy] = useState<number>(() => {
+    const saved = localStorage.getItem('video_lossy');
+    return saved !== null ? parseInt(saved, 10) : 30;
+  });
+  const [videoColors, setVideoColors] = useState<number>(() => {
+    const saved = localStorage.getItem('video_colors');
+    return saved !== null ? parseInt(saved, 10) : 128;
+  });
+  const [videoOptimizeLevel, setVideoOptimizeLevel] = useState<number>(() => {
+    const saved = localStorage.getItem('video_optimizeLevel');
+    return saved !== null ? parseInt(saved, 10) : 3;
+  });
+  const [videoCropTransparency, setVideoCropTransparency] = useState<boolean>(() => {
+    const saved = localStorage.getItem('video_cropTransparency');
+    return saved !== null ? saved === 'true' : false;
+  });
+
   // Load settings on mount from backend configuration file
   useEffect(() => {
     const initSettings = async () => {
@@ -211,6 +228,11 @@ export default function App() {
           if (saved.gifSharpness !== undefined) setGifSharpness(saved.gifSharpness);
           if (saved.videoClarity !== undefined) setVideoClarity(saved.videoClarity);
           if (saved.videoSharpness !== undefined) setVideoSharpness(saved.videoSharpness);
+
+          if (saved.videoLossy !== undefined) setVideoLossy(saved.videoLossy);
+          if (saved.videoColors !== undefined) setVideoColors(saved.videoColors);
+          if (saved.videoOptimizeLevel !== undefined) setVideoOptimizeLevel(saved.videoOptimizeLevel);
+          if (saved.videoCropTransparency !== undefined) setVideoCropTransparency(saved.videoCropTransparency);
         }
       } catch (err) {
         console.error('Failed to load settings from main process:', err);
@@ -261,7 +283,11 @@ export default function App() {
       gifClarity,
       gifSharpness,
       videoClarity,
-      videoSharpness
+      videoSharpness,
+      videoLossy,
+      videoColors,
+      videoOptimizeLevel,
+      videoCropTransparency
     };
     
     // Backup to localStorage
@@ -280,6 +306,10 @@ export default function App() {
     localStorage.setItem('gif_sharpness', String(gifSharpness));
     localStorage.setItem('video_clarity', String(videoClarity));
     localStorage.setItem('video_sharpness', String(videoSharpness));
+    localStorage.setItem('video_lossy', String(videoLossy));
+    localStorage.setItem('video_colors', String(videoColors));
+    localStorage.setItem('video_optimizeLevel', String(videoOptimizeLevel));
+    localStorage.setItem('video_cropTransparency', String(videoCropTransparency));
 
     window.electronAPI.saveSettings(settings).catch((err) => {
       console.error('Failed to save settings:', err);
@@ -305,7 +335,11 @@ export default function App() {
     gifClarity,
     gifSharpness,
     videoClarity,
-    videoSharpness
+    videoSharpness,
+    videoLossy,
+    videoColors,
+    videoOptimizeLevel,
+    videoCropTransparency
   ]);
 
   const formatSize = (bytes: number) => {
@@ -616,7 +650,7 @@ export default function App() {
     setVideoConvertedFile(null);
   };
 
-  const handleVideoConvert = async () => {
+  const handleVideoConvert = async (smartCompress = false) => {
     if (!videoOriginalFile) return;
     setLoading(true);
     try {
@@ -631,7 +665,13 @@ export default function App() {
         speed,
         playMode: videoPlayMode,
         clarity: videoClarity,
-        sharpness: videoSharpness
+        sharpness: videoSharpness,
+        smartCompress,
+        targetSizeMB: targetMB,
+        optimizeLevel: videoOptimizeLevel,
+        colors: videoColors,
+        lossy: videoLossy,
+        cropTransparency: videoCropTransparency
       });
       setVideoConvertedFile(res);
     } catch (err: any) {
@@ -1524,9 +1564,20 @@ export default function App() {
           setClarity={setVideoClarity}
           sharpness={videoSharpness}
           setSharpness={setVideoSharpness}
-          onConvert={handleVideoConvert}
+          onConvert={() => handleVideoConvert(false)}
           loading={loading}
           disabled={!videoOriginalFile}
+          targetMB={targetMB}
+          setTargetMB={setTargetMB}
+          lossy={videoLossy}
+          setLossy={setVideoLossy}
+          colors={videoColors}
+          setColors={setVideoColors}
+          optimizeLevel={videoOptimizeLevel}
+          setOptimizeLevel={setVideoOptimizeLevel}
+          cropTransparency={videoCropTransparency}
+          setCropTransparency={setVideoCropTransparency}
+          onSmartCompress={() => handleVideoConvert(true)}
         />
       )}
     </Box>

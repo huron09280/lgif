@@ -64,6 +64,12 @@ declare global {
         playMode?: 'normal' | 'alternate';
         clarity?: number;
         sharpness?: number;
+        smartCompress?: boolean;
+        targetSizeMB?: number;
+        optimizeLevel?: number;
+        colors?: number;
+        lossy?: number;
+        cropTransparency?: boolean;
       }) => Promise<{
         outputPath: string;
         videoPath?: string;
